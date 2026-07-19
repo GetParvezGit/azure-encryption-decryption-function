@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36811.4 d17.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Azure.EncryptionDecryption.Function", "Azure.EncryptionDecryption.Function\Azure.EncryptionDecryption.Function.csproj", "{1E58707E-5A99-4422-B87D-DF7BEA7CD975}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Azure.EncryptionDecryption.Utilities", "Azure.EncryptionDecryption.Utilities\Azure.EncryptionDecryption.Utilities.csproj", "{D13E72E6-158A-4ABA-AADA-458183223D38}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{1E58707E-5A99-4422-B87D-DF7BEA7CD975}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1E58707E-5A99-4422-B87D-DF7BEA7CD975}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1E58707E-5A99-4422-B87D-DF7BEA7CD975}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1E58707E-5A99-4422-B87D-DF7BEA7CD975}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D13E72E6-158A-4ABA-AADA-458183223D38}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D13E72E6-158A-4ABA-AADA-458183223D38}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D13E72E6-158A-4ABA-AADA-458183223D38}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D13E72E6-158A-4ABA-AADA-458183223D38}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {258EE337-FA1F-4A69-9572-7552704C6444}
+	EndGlobalSection
+EndGlobal
