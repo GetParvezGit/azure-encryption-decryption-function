@@ -14,6 +14,9 @@
     "appInsightsName": {
       "value": "ail-iaz-appi-dev-datacryption"
     },
+    "logAnalyticsWorkspaceName": {
+      "value": "ail-iaz-log-dev-datacryptionlogs"
+    },
     "hostingPlanName": {
       "value": "ail-iaz-plan-dev-datacryption"
     },
