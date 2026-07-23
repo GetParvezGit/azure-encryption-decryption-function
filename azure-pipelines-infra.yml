@@ -1,0 +1,52 @@
+trigger: none
+
+pool:
+  vmImage: 'windows-latest'
+
+variables:
+  azureServiceConnection: 'Azure-ServiceCon-FederationCred'
+  resourceGroupName: 'ail-iaz-rg-dev-datacryption'
+  location: 'centralindia'
+  armTemplateFile: 'infra/azuredeploy.json'
+  armParametersFile: 'infra/parameters-dev.json'
+
+steps:
+
+- task: AzureCLI@2
+  displayName: 'Create Resource Group if Not Exists'
+  inputs:
+    azureSubscription: '$(azureServiceConnection)'
+    scriptType: 'ps'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      Write-Host "Checking Resource Group: $(resourceGroupName)"
+
+      $resourceGroupExists = az group exists --name "$(resourceGroupName)"
+
+      if ($resourceGroupExists -eq "true") {
+        Write-Host "Resource Group already exists: $(resourceGroupName)"
+      }
+      else {
+        Write-Host "Resource Group does not exist. Creating: $(resourceGroupName)"
+
+        az group create `
+          --name "$(resourceGroupName)" `
+          --location "$(location)"
+      }
+
+- task: AzureCLI@2
+  displayName: 'Deploy ARM Template - DEV'
+  inputs:
+    azureSubscription: '$(azureServiceConnection)'
+    scriptType: 'ps'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      Write-Host "Starting ARM deployment..."
+
+      az deployment group create `
+        --resource-group "$(resourceGroupName)" `
+        --template-file "$(armTemplateFile)" `
+        --parameters "@$(armParametersFile)" `
+        --mode Incremental
+
+      Write-Host "ARM deployment completed successfully."
