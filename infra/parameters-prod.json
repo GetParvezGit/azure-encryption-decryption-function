@@ -3,28 +3,28 @@
   "contentVersion": "1.0.0.0",
   "parameters": {
     "resourceGroupName": {
-      "value": "ail-iaz-rg-dev-datacryption"
+      "value": "ail-iaz-rg-prod-datacryption"
     },
     "location": {
       "value": "centralindia"
     },
     "storageAccountName": {
-      "value": "ailiazstdatacrypt"
+      "value": "ailiazstproddatacrypt"
     },
     "functionAppName": {
-      "value": "ail-iaz-func-dev-datacryption"
+      "value": "ail-iaz-func-prod-datacryption"
     },
     "appInsightsName": {
-      "value": "ail-iaz-appi-dev-datacryption"
+      "value": "ail-iaz-appi-prod-datacryption"
     },
     "logAnalyticsWorkspaceName": {
-      "value": "ail-iaz-log-dev-datacryptionlogs"
+      "value": "ail-iaz-log-prod-datacryptionlogs"
     },
     "hostingPlanName": {
-      "value": "ail-iaz-plan-dev-datacryption"
+      "value": "ail-iaz-plan-prod-datacryption"
     },
     "keyVaultName": {
-      "value": "ail-iaz-kv-dev-datacrypt"
+      "value": "ail-iaz-kv-prd-datacrypt"
     },
     "runtime": {
       "value": "dotnet-isolated"
