@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "resourceGroupName": {
+      "value": "ail-iaz-rg-prod-datacryption"
+    },
+    "location": {
+      "value": "centralindia"
+    },
+    "storageAccountName": {
+      "value": "ailiazstproddatacrypt"
+    },
+    "functionAppName": {
+      "value": "ail-iaz-func-prod-datacryption"
+    },
+    "appInsightsName": {
+      "value": "ail-iaz-appi-prod-datacryption"
+    },
+    "logAnalyticsWorkspaceName": {
+      "value": "ail-iaz-log-prod-datacryptionlogs"
+    },
+    "hostingPlanName": {
+      "value": "ail-iaz-plan-prod-datacryption"
+    },
+    "keyVaultName": {
+      "value": "ail-iaz-kv-prd-datacrypt"
+    },
+    "runtime": {
+      "value": "dotnet-isolated"
+    }
+  }
+}

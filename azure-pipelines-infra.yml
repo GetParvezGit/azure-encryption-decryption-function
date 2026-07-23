@@ -1,0 +1,348 @@
+trigger: none
+
+parameters:
+- name: environment
+  displayName: Environment
+  type: string
+  default: dev
+  values:
+  - dev
+  - sit
+  - prod
+
+pool:
+  vmImage: 'windows-latest'
+
+variables:
+
+- name: azureServiceConnection
+  value: 'Azure-ServiceCon-FederationCred'
+
+- name: armTemplateFile
+  value: 'infra/azuredeploy.json'
+
+- name: armParametersFile
+  value: 'infra/parameters-${{ parameters.environment }}.json'
+
+- ${{ if eq(parameters.environment, 'dev') }}:
+  - group: VG-DATACRYPT-DEV
+
+- ${{ if eq(parameters.environment, 'sit') }}:
+  - group: VG-DATACRYPT-SIT
+
+- ${{ if eq(parameters.environment, 'prod') }}:
+  - group: VG-DATACRYPT-PROD
+
+steps:
+
+- task: PowerShell@2
+  displayName: 'Load Environment Configuration'
+  inputs:
+    targetType: 'inline'
+    script: |
+      $ErrorActionPreference = "Stop"
+
+      $parametersFile = "$(Build.SourcesDirectory)/$(armParametersFile)"
+
+      Write-Host "Loading environment configuration from: $parametersFile"
+
+      $config = Get-Content $parametersFile | ConvertFrom-Json
+
+      $resourceGroupName = $config.parameters.resourceGroupName.value
+      $location = $config.parameters.location.value
+      $functionAppName = $config.parameters.functionAppName.value
+      $keyVaultName = $config.parameters.keyVaultName.value
+
+      Write-Host "Environment: ${{ parameters.environment }}"
+      Write-Host "Resource Group: $resourceGroupName"
+      Write-Host "Location: $location"
+      Write-Host "Function App: $functionAppName"
+      Write-Host "Key Vault: $keyVaultName"
+
+      Write-Host "##vso[task.setvariable variable=resourceGroupName]$resourceGroupName"
+      Write-Host "##vso[task.setvariable variable=location]$location"
+      Write-Host "##vso[task.setvariable variable=functionAppName]$functionAppName"
+      Write-Host "##vso[task.setvariable variable=keyVaultName]$keyVaultName"
+
+- task: AzureCLI@2
+  displayName: 'Create Resource Group if Not Exists'
+  inputs:
+    azureSubscription: '$(azureServiceConnection)'
+    scriptType: 'ps'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      $ErrorActionPreference = "Stop"
+
+      Write-Host "Checking Resource Group: $(resourceGroupName)"
+
+      $resourceGroupExists = az group exists --name "$(resourceGroupName)"
+
+      if ($resourceGroupExists -eq "true") {
+        Write-Host "Resource Group already exists: $(resourceGroupName)"
+      }
+      else {
+        Write-Host "Resource Group does not exist. Creating: $(resourceGroupName)"
+
+        az group create `
+          --name "$(resourceGroupName)" `
+          --location "$(location)"
+      }
+
+- task: AzureCLI@2
+  displayName: 'Deploy ARM Template'
+  inputs:
+    azureSubscription: '$(azureServiceConnection)'
+    scriptType: 'ps'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      $ErrorActionPreference = "Stop"
+
+      Write-Host "Starting ARM deployment for environment: ${{ parameters.environment }}"
+
+      az deployment group create `
+        --resource-group "$(resourceGroupName)" `
+        --template-file "$(armTemplateFile)" `
+        --parameters "@$(armParametersFile)" `
+        --mode Incremental
+
+      Write-Host "ARM deployment completed successfully."
+
+- task: AzureCLI@2
+  displayName: 'Grant Pipeline Access to Key Vault'
+  inputs:
+    azureSubscription: '$(azureServiceConnection)'
+    scriptType: 'ps'
+    scriptLocation: 'inlineScript'
+    addSpnToEnvironment: true
+    inlineScript: |
+      $ErrorActionPreference = "Stop"
+
+      Write-Host "Fetching Key Vault Id"
+
+      $keyVaultId = az keyvault show `
+        --name "$(keyVaultName)" `
+        --query id `
+        -o tsv
+
+      Write-Host "Key Vault Id: $keyVaultId"
+      Write-Host "Service connection application id: $env:servicePrincipalId"
+
+      $existingAssignment = az role assignment list `
+        --assignee $env:servicePrincipalId `
+        --scope $keyVaultId `
+        --query "[?roleDefinitionName=='Key Vault Secrets Officer'].id" `
+        -o tsv
+
+      if ([string]::IsNullOrWhiteSpace($existingAssignment)) {
+        Write-Host "Assigning Key Vault Secrets Officer role to service connection."
+
+        az role assignment create `
+          --assignee $env:servicePrincipalId `
+          --role "Key Vault Secrets Officer" `
+          --scope $keyVaultId
+      }
+      else {
+        Write-Host "Key Vault Secrets Officer role already exists for service connection."
+      }
+
+      Write-Host "Waiting for RBAC propagation."
+      Start-Sleep -Seconds 60
+
+- task: AzureCLI@2
+  displayName: 'Create or Update PGP Secrets Only If Value Changed'
+  inputs:
+    azureSubscription: '$(azureServiceConnection)'
+    scriptType: 'ps'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      $ErrorActionPreference = "Stop"
+
+      $keyVaultName = "$(keyVaultName)"
+      $tempDirectory = "$(Agent.TempDirectory)"
+
+      Write-Host "Preparing secret value files."
+
+      $publicKeyFile = Join-Path $tempDirectory "pgp-public-key.txt"
+      $privateKeyFile = Join-Path $tempDirectory "pgp-private-key.txt"
+      $passphraseFile = Join-Path $tempDirectory "pgp-passphrase.txt"
+
+      $env:PGP_PUBLIC_KEY_VALUE | Out-File $publicKeyFile -Encoding utf8 -NoNewline
+      $env:PGP_PRIVATE_KEY_VALUE | Out-File $privateKeyFile -Encoding utf8 -NoNewline
+      $env:PGP_PASSPHRASE_VALUE | Out-File $passphraseFile -Encoding utf8 -NoNewline
+
+      Write-Host "Secret files prepared."
+
+      function Sync-KeyVaultSecretFromFile {
+        param (
+          [string] $VaultName,
+          [string] $SecretName,
+          [string] $DesiredValueFile
+        )
+
+        Write-Host "--------------------------------------------"
+        Write-Host "Processing secret: $SecretName"
+
+        $secretExists = az keyvault secret list `
+          --vault-name $VaultName `
+          --query "[?name=='$SecretName'].name" `
+          -o tsv `
+          --only-show-errors
+
+        if ([string]::IsNullOrWhiteSpace($secretExists)) {
+          Write-Host "Secret does not exist. Creating new secret: $SecretName"
+
+          az keyvault secret set `
+            --vault-name $VaultName `
+            --name $SecretName `
+            --file $DesiredValueFile `
+            --encoding utf-8 `
+            --only-show-errors
+
+          Write-Host "Secret created: $SecretName"
+          return
+        }
+
+        Write-Host "Secret exists. Downloading current latest version for comparison: $SecretName"
+
+        $currentValueFile = Join-Path $tempDirectory "$SecretName-current.txt"
+
+        az keyvault secret download `
+          --vault-name $VaultName `
+          --name $SecretName `
+          --file $currentValueFile `
+          --encoding utf-8 `
+          --only-show-errors
+
+        $currentHash = (Get-FileHash $currentValueFile -Algorithm SHA256).Hash
+        $desiredHash = (Get-FileHash $DesiredValueFile -Algorithm SHA256).Hash
+
+        if ($currentHash -eq $desiredHash) {
+          Write-Host "Secret value is same. No new version required: $SecretName"
+          return
+        }
+
+        Write-Host "Secret value is different. Creating new version: $SecretName"
+
+        $oldSecretId = az keyvault secret show `
+          --vault-name $VaultName `
+          --name $SecretName `
+          --query id `
+          -o tsv `
+          --only-show-errors
+
+        az keyvault secret set `
+          --vault-name $VaultName `
+          --name $SecretName `
+          --file $DesiredValueFile `
+          --encoding utf-8 `
+          --only-show-errors
+
+        Write-Host "New version created for secret: $SecretName"
+
+        Write-Host "Disabling previous version for secret: $SecretName"
+
+        az keyvault secret set-attributes `
+          --id $oldSecretId `
+          --enabled false `
+          --only-show-errors
+
+        Write-Host "Previous version disabled for secret: $SecretName"
+      }
+
+      Sync-KeyVaultSecretFromFile `
+        -VaultName $keyVaultName `
+        -SecretName "pgp-public-key" `
+        -DesiredValueFile $publicKeyFile
+
+      Sync-KeyVaultSecretFromFile `
+        -VaultName $keyVaultName `
+        -SecretName "pgp-private-key" `
+        -DesiredValueFile $privateKeyFile
+
+      Sync-KeyVaultSecretFromFile `
+        -VaultName $keyVaultName `
+        -SecretName "pgp-passphrase" `
+        -DesiredValueFile $passphraseFile
+
+      Write-Host "Cleaning temporary secret files."
+
+      Remove-Item $publicKeyFile -Force -ErrorAction SilentlyContinue
+      Remove-Item $privateKeyFile -Force -ErrorAction SilentlyContinue
+      Remove-Item $passphraseFile -Force -ErrorAction SilentlyContinue
+
+      Write-Host "PGP secret synchronization completed successfully."
+  env:
+    PGP_PUBLIC_KEY_VALUE: $(PGP_PUBLIC_KEY_VALUE)
+    PGP_PRIVATE_KEY_VALUE: $(PGP_PRIVATE_KEY_VALUE)
+    PGP_PASSPHRASE_VALUE: $(PGP_PASSPHRASE_VALUE)
+
+- task: AzureCLI@2
+  displayName: 'Grant Function App Access to Key Vault'
+  inputs:
+    azureSubscription: '$(azureServiceConnection)'
+    scriptType: 'ps'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      $ErrorActionPreference = "Stop"
+
+      Write-Host "Fetching Function App managed identity principal id"
+
+      $principalId = az functionapp identity show `
+        --name "$(functionAppName)" `
+        --resource-group "$(resourceGroupName)" `
+        --query principalId `
+        -o tsv
+
+      if ([string]::IsNullOrWhiteSpace($principalId)) {
+        Write-Error "Function App managed identity principal id was not found."
+        exit 1
+      }
+
+      Write-Host "Function App Principal Id: $principalId"
+
+      Write-Host "Fetching Key Vault Id"
+
+      $keyVaultId = az keyvault show `
+        --name "$(keyVaultName)" `
+        --query id `
+        -o tsv
+
+      Write-Host "Key Vault Id: $keyVaultId"
+
+      $existingAssignment = az role assignment list `
+        --assignee $principalId `
+        --scope $keyVaultId `
+        --query "[?roleDefinitionName=='Key Vault Secrets User'].id" `
+        -o tsv
+
+      if ([string]::IsNullOrWhiteSpace($existingAssignment)) {
+        Write-Host "Assigning Key Vault Secrets User role to Function App."
+
+        az role assignment create `
+          --assignee $principalId `
+          --role "Key Vault Secrets User" `
+          --scope $keyVaultId
+      }
+      else {
+        Write-Host "Key Vault Secrets User role already assigned to Function App."
+      }
+
+      Write-Host "Waiting for RBAC propagation."
+      Start-Sleep -Seconds 60
+
+- task: AzureCLI@2
+  displayName: 'Restart Function App'
+  inputs:
+    azureSubscription: '$(azureServiceConnection)'
+    scriptType: 'ps'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      $ErrorActionPreference = "Stop"
+
+      Write-Host "Restarting Function App to refresh Key Vault references."
+
+      az functionapp restart `
+        --name "$(functionAppName)" `
+        --resource-group "$(resourceGroupName)"
+
+      Write-Host "Function App restarted successfully."
