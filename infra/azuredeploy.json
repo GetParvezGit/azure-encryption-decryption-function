@@ -2,6 +2,9 @@
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "parameters": {
+    "resourceGroupName": {
+      "type": "string"
+    },
     "location": {
       "type": "string"
     },
@@ -185,13 +188,17 @@
     }
   ],
   "outputs": {
-    "functionAppName": {
+    "resourceGroupName": {
       "type": "string",
-      "value": "[parameters('functionAppName')]"
+      "value": "[parameters('resourceGroupName')]"
     },
     "storageAccountName": {
       "type": "string",
       "value": "[parameters('storageAccountName')]"
+    },
+    "functionAppName": {
+      "type": "string",
+      "value": "[parameters('functionAppName')]"
     },
     "appInsightsName": {
       "type": "string",
@@ -200,6 +207,10 @@
     "logAnalyticsWorkspaceName": {
       "type": "string",
       "value": "[parameters('logAnalyticsWorkspaceName')]"
+    },
+    "hostingPlanName": {
+      "type": "string",
+      "value": "[parameters('hostingPlanName')]"
     },
     "keyVaultName": {
       "type": "string",
