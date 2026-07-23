@@ -87,7 +87,7 @@ steps:
         --query "[?roleDefinitionName=='Key Vault Secrets Officer'].id" `
         -o tsv
 
-      if (:IsNullOrWhiteSpace($existingAssignment)) {
+      if ([string]::IsNullOrWhiteSpace($existingAssignment)) {
         Write-Host "Assigning Key Vault Secrets Officer role to service connection."
 
         az role assignment create `
