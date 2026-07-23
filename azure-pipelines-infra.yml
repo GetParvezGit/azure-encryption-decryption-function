@@ -1,21 +1,68 @@
 trigger: none
 
+parameters:
+- name: environment
+  displayName: Environment
+  type: string
+  default: dev
+  values:
+  - dev
+  - sit
+  - prod
+
 pool:
   vmImage: 'windows-latest'
 
 variables:
-  azureServiceConnection: 'Azure-ServiceCon-FederationCred'
 
-  resourceGroupName: 'ail-iaz-rg-dev-datacryption'
-  location: 'centralindia'
+- name: azureServiceConnection
+  value: 'Azure-ServiceCon-FederationCred'
 
-  armTemplateFile: 'infra/azuredeploy.json'
-  armParametersFile: 'infra/parameters-dev.json'
+- name: armTemplateFile
+  value: 'infra/azuredeploy.json'
 
-  keyVaultName: 'ail-iaz-kv-dev-datacrypt'
-  functionAppName: 'ail-iaz-func-dev-datacryption'
+- name: armParametersFile
+  value: 'infra/parameters-${{ parameters.environment }}.json'
+
+- ${{ if eq(parameters.environment, 'dev') }}:
+  - group: VG-DATACRYPT-DEV
+
+- ${{ if eq(parameters.environment, 'sit') }}:
+  - group: VG-DATACRYPT-SIT
+
+- ${{ if eq(parameters.environment, 'prod') }}:
+  - group: VG-DATACRYPT-PROD
 
 steps:
+
+- task: PowerShell@2
+  displayName: 'Load Environment Configuration'
+  inputs:
+    targetType: 'inline'
+    script: |
+      $ErrorActionPreference = "Stop"
+
+      $parametersFile = "$(Build.SourcesDirectory)/$(armParametersFile)"
+
+      Write-Host "Loading environment configuration from: $parametersFile"
+
+      $config = Get-Content $parametersFile | ConvertFrom-Json
+
+      $resourceGroupName = $config.parameters.resourceGroupName.value
+      $location = $config.parameters.location.value
+      $functionAppName = $config.parameters.functionAppName.value
+      $keyVaultName = $config.parameters.keyVaultName.value
+
+      Write-Host "Environment: ${{ parameters.environment }}"
+      Write-Host "Resource Group: $resourceGroupName"
+      Write-Host "Location: $location"
+      Write-Host "Function App: $functionAppName"
+      Write-Host "Key Vault: $keyVaultName"
+
+      Write-Host "##vso[task.setvariable variable=resourceGroupName]$resourceGroupName"
+      Write-Host "##vso[task.setvariable variable=location]$location"
+      Write-Host "##vso[task.setvariable variable=functionAppName]$functionAppName"
+      Write-Host "##vso[task.setvariable variable=keyVaultName]$keyVaultName"
 
 - task: AzureCLI@2
   displayName: 'Create Resource Group if Not Exists'
@@ -42,7 +89,7 @@ steps:
       }
 
 - task: AzureCLI@2
-  displayName: 'Deploy ARM Template - DEV'
+  displayName: 'Deploy ARM Template'
   inputs:
     azureSubscription: '$(azureServiceConnection)'
     scriptType: 'ps'
@@ -50,7 +97,7 @@ steps:
     inlineScript: |
       $ErrorActionPreference = "Stop"
 
-      Write-Host "Starting ARM deployment..."
+      Write-Host "Starting ARM deployment for environment: ${{ parameters.environment }}"
 
       az deployment group create `
         --resource-group "$(resourceGroupName)" `
@@ -78,7 +125,6 @@ steps:
         -o tsv
 
       Write-Host "Key Vault Id: $keyVaultId"
-
       Write-Host "Service connection application id: $env:servicePrincipalId"
 
       $existingAssignment = az role assignment list `
@@ -87,7 +133,7 @@ steps:
         --query "[?roleDefinitionName=='Key Vault Secrets Officer'].id" `
         -o tsv
 
-      if ([string]::IsNullOrWhiteSpace($existingAssignment)) {
+      if (:IsNullOrWhiteSpace($existingAssignment)) {
         Write-Host "Assigning Key Vault Secrets Officer role to service connection."
 
         az role assignment create `
@@ -99,7 +145,7 @@ steps:
         Write-Host "Key Vault Secrets Officer role already exists for service connection."
       }
 
-      Write-Host "Waiting for RBAC propagation..."
+      Write-Host "Waiting for RBAC propagation."
       Start-Sleep -Seconds 60
 
 - task: AzureCLI@2
@@ -142,7 +188,7 @@ steps:
           -o tsv `
           --only-show-errors
 
-        if (:IsNullOrWhiteSpace($secretExists)) {
+        if ([string]::IsNullOrWhiteSpace($secretExists)) {
           Write-Host "Secret does not exist. Creating new secret: $SecretName"
 
           az keyvault secret set `
@@ -247,7 +293,7 @@ steps:
         --query principalId `
         -o tsv
 
-      if (:IsNullOrWhiteSpace($principalId)) {
+      if ([string]::IsNullOrWhiteSpace($principalId)) {
         Write-Error "Function App managed identity principal id was not found."
         exit 1
       }
@@ -269,7 +315,7 @@ steps:
         --query "[?roleDefinitionName=='Key Vault Secrets User'].id" `
         -o tsv
 
-      if (:IsNullOrWhiteSpace($existingAssignment)) {
+      if ([string]::IsNullOrWhiteSpace($existingAssignment)) {
         Write-Host "Assigning Key Vault Secrets User role to Function App."
 
         az role assignment create `
@@ -281,7 +327,7 @@ steps:
         Write-Host "Key Vault Secrets User role already assigned to Function App."
       }
 
-      Write-Host "Waiting for RBAC propagation..."
+      Write-Host "Waiting for RBAC propagation."
       Start-Sleep -Seconds 60
 
 - task: AzureCLI@2
