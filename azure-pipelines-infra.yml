@@ -5,10 +5,15 @@ pool:
 
 variables:
   azureServiceConnection: 'Azure-ServiceCon-FederationCred'
+
   resourceGroupName: 'ail-iaz-rg-dev-datacryption'
   location: 'centralindia'
+
   armTemplateFile: 'infra/azuredeploy.json'
   armParametersFile: 'infra/parameters-dev.json'
+
+  keyVaultName: 'ail-iaz-kv-dev-datacrypt'
+  functionAppName: 'ail-iaz-func-dev-datacryption'
 
 steps:
 
@@ -50,3 +55,136 @@ steps:
         --mode Incremental
 
       Write-Host "ARM deployment completed successfully."
+
+- task: AzureCLI@2
+  displayName: 'Grant Pipeline Access to Set Key Vault Secrets'
+  inputs:
+    azureSubscription: '$(azureServiceConnection)'
+    scriptType: 'ps'
+    scriptLocation: 'inlineScript'
+    addSpnToEnvironment: true
+    inlineScript: |
+      Write-Host "Fetching Key Vault Id"
+
+      $keyVaultId = az keyvault show `
+        --name "$(keyVaultName)" `
+        --query id `
+        -o tsv
+
+      Write-Host "Key Vault Id: $keyVaultId"
+
+      Write-Host "Service Principal Id from service connection: $env:servicePrincipalId"
+
+      $existingAssignment = az role assignment list `
+        --assignee $env:servicePrincipalId `
+        --scope $keyVaultId `
+        --query "[?roleDefinitionName=='Key Vault Secrets Officer'].id" `
+        -o tsv
+
+      if ($existingAssignment) {
+        Write-Host "Key Vault Secrets Officer role already assigned to pipeline identity."
+      }
+      else {
+        Write-Host "Assigning Key Vault Secrets Officer role to pipeline identity."
+
+        az role assignment create `
+          --assignee $env:servicePrincipalId `
+          --role "Key Vault Secrets Officer" `
+          --scope $keyVaultId
+      }
+
+      Write-Host "Waiting for role assignment propagation..."
+      Start-Sleep -Seconds 30
+
+- task: AzureCLI@2
+  displayName: 'Create or Update PGP Secrets in Key Vault'
+  inputs:
+    azureSubscription: '$(azureServiceConnection)'
+    scriptType: 'ps'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      Write-Host "Creating/updating PGP secrets in Key Vault: $(keyVaultName)"
+
+      az keyvault secret set `
+        --vault-name "$(keyVaultName)" `
+        --name "pgp-public-key" `
+        --value "$(PGP_PUBLIC_KEY_VALUE)"
+
+      az keyvault secret set `
+        --vault-name "$(keyVaultName)" `
+        --name "pgp-private-key" `
+        --value "$(PGP_PRIVATE_KEY_VALUE)"
+
+      az keyvault secret set `
+        --vault-name "$(keyVaultName)" `
+        --name "pgp-passphrase" `
+        --value "$(PGP_PASSPHRASE_VALUE)"
+
+      Write-Host "PGP secrets created/updated successfully."
+
+- task: AzureCLI@2
+  displayName: 'Grant Function App Access to Key Vault'
+  inputs:
+    azureSubscription: '$(azureServiceConnection)'
+    scriptType: 'ps'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      Write-Host "Fetching Function App managed identity principal id"
+
+      $principalId = az functionapp identity show `
+        --name "$(functionAppName)" `
+        --resource-group "$(resourceGroupName)" `
+        --query principalId `
+        -o tsv
+
+      if (:IsNullOrWhiteSpace($principalId)) {
+        Write-Error "Function App managed identity principal id was not found."
+        exit 1
+      }
+
+      Write-Host "Function App Principal Id: $principalId"
+
+      Write-Host "Fetching Key Vault Id"
+
+      $keyVaultId = az keyvault show `
+        --name "$(keyVaultName)" `
+        --query id `
+        -o tsv
+
+      Write-Host "Key Vault Id: $keyVaultId"
+
+      $existingAssignment = az role assignment list `
+        --assignee $principalId `
+        --scope $keyVaultId `
+        --query "[?roleDefinitionName=='Key Vault Secrets User'].id" `
+        -o tsv
+
+      if ($existingAssignment) {
+        Write-Host "Key Vault Secrets User role already assigned to Function App."
+      }
+      else {
+        Write-Host "Assigning Key Vault Secrets User role to Function App."
+
+        az role assignment create `
+          --assignee $principalId `
+          --role "Key Vault Secrets User" `
+          --scope $keyVaultId
+      }
+
+      Write-Host "Waiting for role assignment propagation..."
+      Start-Sleep -Seconds 30
+
+- task: AzureCLI@2
+  displayName: 'Restart Function App'
+  inputs:
+    azureSubscription: '$(azureServiceConnection)'
+    scriptType: 'ps'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      Write-Host "Restarting Function App to refresh Key Vault references."
+
+      az functionapp restart `
+        --name "$(functionAppName)" `
+        --resource-group "$(resourceGroupName)"
+
+      Write-Host "Function App restarted successfully."

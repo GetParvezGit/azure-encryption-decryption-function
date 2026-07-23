@@ -20,6 +20,9 @@
     "hostingPlanName": {
       "value": "ail-iaz-plan-dev-datacryption"
     },
+    "keyVaultName": {
+      "value": "ail-iaz-kv-dev-datacrypt"
+    },
     "runtime": {
       "value": "dotnet-isolated"
     }
