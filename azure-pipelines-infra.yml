@@ -137,7 +137,7 @@ steps:
         --query principalId `
         -o tsv
 
-      if (:IsNullOrWhiteSpace($principalId)) {
+      if ([string]::IsNullOrWhiteSpace($principalId)) {
         Write-Error "Function App managed identity principal id was not found."
         exit 1
       }
